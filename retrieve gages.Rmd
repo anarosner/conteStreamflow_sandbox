@@ -1,0 +1,129 @@
+
+```{r}
+
+library(dplyr)
+library(conteStreamflow)
+library(foreign)
+
+```
+
+
+
+
+```{r}
+
+
+gages <- gage.retrieve(
+     buffer.file="C:/ALR/Models/conteStreamflow_new_england/data/10_2015/ctr_states_buffer_no_islands_GCS", 
+     max.da.sqkm=100 )
+gages@data <- gages@data[,c("site_no","station_nm","dec_lat_va","dec_long_va","huc_cd","da_nwis_sqmi","da_nwis_sqkm" )]
+length(gages)
+names(gages)
+
+
+```
+
+```{r}
+
+gages_DelinID <- read.dbf(
+     "C:/ALR/Projects/MassDOT/data/gage_data/gages_500sqkm_DelinID.dbf" )
+gages_DelinID$site_no <- as.character( gages_DelinID$site_no )
+gages_DelinID <- gages_DelinID[,c("site_no","DelinID")]
+
+length((gages_DelinID$site_no))
+length(unique(gages_DelinID$site_no))
+length(gages_DelinID[gages_DelinID$d_nws_sqkm<100,"site_no"])
+head(gages_DelinID)
+
+```
+
+```{r}
+
+load( "C:/ALR/Models_from_others/Kyle/HRD - high res point delineation by DelinID/pointDelineationStats_4_3_2015.RData", 
+      verbose=T )
+
+str(pointDelineationStats)
+
+gages_basinchar <- merge( gages_DelinID, pointDelineationStats, 
+                          suffixes = c("",".y") )
+head(gages_DelinID)
+
+```
+
+```{r}
+
+gages <- merge( gages, gages_basinchar, by="site_no", suffixes = c("",".y") )
+
+View(gages@data)
+
+```
+
+```{r}
+
+load("C:/ALR/Models/cache/data/general_spatial/states.rdata")
+
+View(gages@data[is.na(gages$DelinID),])
+
+plot(gages)
+plot(gages[is.na(gages$DelinID),], add=T, col="red")
+plot(states.poly, add=T, border="orange")
+sum(is.na(gages$DelinID))
+```
+
+```{r}
+
+load( "C:/ALR/Models/cache/data/weather_sets/livneh_1950_2013/weather.grid.poly.rdata", verbose=T)
+
+# bkup<-gages
+# temp<-over( gages, weather.grid.poly )
+# View(cbind(gages@data[,c("dec_lat_va","dec_long_va")],temp[,c("y","x")]))
+# gages.spatial$weather.filename <- temp$weather.filename
+# gages.spatial$region <- temp$region
+
+
+gages@data[ , c("weather_filename","weather_region") ] <- 
+     over( gages, weather.grid.poly )[ , c("weather.filename","region") ]
+str(gages@data)     
+gages$weather_filename<-as.character(gages$weather_filename) 
+gages$weather_set <- "livneh_1950_2013"
+     
+sum(is.na(gages$weather_filename))
+sum(!is.na(gages$weather_filename))
+
+save(gages,file="C:/ALR/Models/conteStreamflow_sandbox/gages.rdata")
+
+```
+
+```{r}
+
+names(gages)
+nrow(gages)
+sum(gages$deg_barr_all==0, na.rm = T)
+sum(gages$deg_barr_all>0, na.rm = T)
+sum(is.na(gages$deg_barr_all))
+
+```
+
+```{r}
+
+gages_no_barr <- gages[ !is.na(gages$deg_barr_all), ]
+gages_no_barr <- gages_no_barr[ gages_no_barr$deg_barr_all==0, ]
+
+nrow(gages_no_barr)
+
+plot(gages_no_barr)
+plot(states.poly, add=T, border="orange")
+
+hist(gages_no_barr$AreaSqKM)
+
+
+save(gages_no_barr,file="C:/ALR/Models/conteStreamflow_sandbox/gages_no_barr.rdata")
+
+```
+
+```{r}
+
+
+
+```
+
