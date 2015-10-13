@@ -1,0 +1,204 @@
+```{r}
+
+load("C:/ALR/Models/conteStreamflow_new_england/data/max/q.max.matrices.rdata", verbose=T)
+load("C:/ALR/Models/conteStreamflow_new_england/data/max/w.max.matrices.rdata", verbose=T)
+
+w.max.matrices
+str(w.max.matrices)
+
+```
+
+```{r}
+
+w <- w.max.matrices[["monthly"]]
+q <- q.max.matrices[["monthly"]]
+
+str(w)
+str(q)
+
+rm(w.max.matrices)
+rm(q.max.matrices)
+
+```
+
+```{r}
+library(tidyr)
+library(dplyr)
+
+w[1:5,1:5,"precip.e.total"]
+rm(w1)
+w1 <- as.data.frame(w[,,"precip.e.total"] )  
+w1 <- w1 %>% 
+     mutate( date = row.names(w1) )
+w1 <- w1 %>% 
+     mutate( date = as.Date(w1$date) ) %>% 
+     select( date, 1:(ncol(w1)-1) )  
+dim(w1)
+w1[1:5,1:5]
+str(w1[1:5,1:5])
+
+rm(w2)
+w2 <- as.data.frame(w[,,"precip.e.max"] )  
+w2 <- w2 %>% 
+     mutate( date = row.names(w2) )
+w2 <- w2 %>% 
+     mutate( date = as.Date(w2$date) ) %>% 
+     select( date, 1:(ncol(w2)-1) )  
+w2[1:5,1:5]
+str(w2[1:5,1:5])
+
+
+```
+
+```{r}
+     # select( date, -(date) )   
+
+# w2 <- as.data.frame(w[,,"precip.e.max"] ) %>% 
+#      mutate( date = row.names(w2) ) %>% 
+#      mutate( date = as.Date(w2$date) ) %>% 
+#      select( date, 2:ncol(w2) )     
+
+# w2$date <- as.Date( row.names(w2) )
+```
+
+
+```{r}
+w_long <- rbind( 
+     gather(w1, grid, value, -date) %>% 
+          mutate( metric="precip.e.total"),
+     gather(w2, grid, value, -date) %>% 
+          mutate( metric="precip.e.max")
+     )%>%
+     mutate( grid = as.character(grid) )
+
+head(w_long)
+tail(w_long)
+str(w_long)
+
+```
+
+```{r}
+# q1 <- as.data.frame(q[,,"max"] ) %>% 
+#      mutate( date = row.names(q1) ) %>% 
+#      mutate( date = as.Date(q1$date) ) %>% 
+#      select( date, 2:ncol(q1) )     
+# q1$date <- as.Date( row.names(q1) )
+
+rm(q1)
+q1 <- as.data.frame(q[,,"max"] )  
+q1 <- q1 %>% 
+     mutate( date = row.names(q1) )
+q1 <- q1 %>% 
+     mutate( date = as.Date(q1$date) ) %>% 
+     select( date, 1:(ncol(q1)-1) )  
+q1[1:5,1:5]
+str(q1[1:5,1:5])
+
+
+q_long <- gather(q1, site_id, value, -date, na.rm=T) %>% 
+          mutate( metric="q.max") %>%
+          mutate( site_id = as.character(site_id) )
+
+
+head(q_long)
+str(q_long)
+
+
+```
+
+```{r}
+
+# long <- rbind( 
+#      gather(w1, site_id, value, -date) %>% 
+#           mutate( metric="precip.e.total"),
+#      gather(w2, site_id, value, -date ) %>% 
+#           mutate( metric="precip.e.max"),
+#      gather(q1, site_id, value, -date, na.rm=T) %>% 
+#           mutate( metric="q.max")
+#      )
+# head(long)
+# unique(long$metric)
+```
+
+```{r}
+library(lubridate)
+
+q_long %>%
+     filter( metric=="q.max" ) %>%
+     group_by( site_id ) %>%
+     summarise( count=n() )
+
+ams <- long %>%
+     filter( metric=="q.max" ) %>%
+     mutate( year=year(date) ) %>%
+     group_by( site_id, year ) %>%
+     summarise( max(value), n.months=n() )
+n.years <- ams %>%
+     filter( n.months >=6 ) %>%
+     group_by(site) %>%
+     summarise(n_years=n())
+View(n.years[rev(order(n.years$n_years)),])
+
+
+     group_by( year(date) ) %>%
+     summarise( site=site, year=year, annual.max = max(value), n.months=n() )
+head(annual.max)
+
+select
+summarize( )
+
+```
+
+```{r}
+
+load("C:/ALR/Models/conteStreamflow_new_england/data/gages_spatial.rdata", verbose=T)
+names(g.spatial@data)
+
+site_lookup <- g.spatial@data %>%
+     select( site_no, FEATUREID, weather.filename, region ) %>%
+     mutate( site_id=site_no, site_type="gage", site_id_type="site_no NWIS", site_source="USGS NWIS") %>%  
+     mutate( grid=weather.filename, grid_region=region ) %>%
+     select( -weather.filename, -site_no, -region ) %>% 
+     mutate( basin_id=FEATUREID, basin_id_type="FEATUREID NHDplus", basin_source="conte med res zonal stats xx-20xx") %>% 
+     select( -FEATUREID )
+
+head(site_lookup)
+
+b_wide <- g.spatial@data %>%
+     mutate( site_da_sqkm = da_sqkm ) %>% 
+     rename( gage_da_sqkm = da_sqkm ) %>% 
+     mutate( basin_id=FEATUREID ) %>% 
+     mutate( site_id=site_no ) %>% 
+     select( site_id, basin_id, site_da_sqkm, gage_da_sqkm, 17:52 ) 
+# %>%
+     # mutate( site_id=site_no ) %>%
+     # select( -site_no )
+head(b_wide[,1:10])
+#temporary, there are duplicates in the basin IDs
+
+# data_wide <-   
+#           spread( q_long, metric, value ) %>% #flow data
+#      left_join( 
+#           site_lookup,                        #join to site id lookup table
+#                by="site_id") %>%              #by site id  
+#      inner_join( 
+#           spread(w_long, metric, value),      #weather data
+#                by=c("grid","date") ) %>%      #join by grid
+#      inner_join( 
+#           b_wide,                             #basin char
+#                by="FEATUREID")                #join by feature id
+#      
+# head(q_long)
+# View(data_wide)
+
+y <- x %>%
+
+
+View(y)
+
+m1 <- lm( data=filter(y, month(date)==6), 
+          formula="log(q.max) ~ da_sqkm + precip.e.max + precip.e.total + Forest:precip.e.max +HydrologicGroupAB:precip.e.max")
+
+summary(m1)
+```
+

@@ -1,0 +1,53 @@
+
+```{r}
+
+load( "C:/ALR/Models/conteStreamflow_new_england/data_prep/livneh_temporary/grid_points.rdata", verbose=T )
+load( "C:/ALR/Models/conteStreamflow_new_england/data_prep/livneh_temporary/grid_coords.rdata", verbose=T )
+
+
+nrow(grid.points)
+plot(states.poly, border="orange")
+plot(grid.points[300000:300500,], add=T)
+
+load( "C:/ALR/Models/cache/data/general_spatial/states.rdata", verbose=T )
+load( "C:/ALR/Models/cache/data/weather_grid/weather_grid_poly.rdata", verbose=T )
+
+
+ne_states <- states.poly[ states.poly$NAME %in% c("Connecticut", "Maine","Massachusetts", "New Hampshire", "New York", "Rhode Island", "Vermont"), ]                  
+plot(ne_states)               
+
+# x = "SpatialPolygons", y = "SpatialPoints"
+#    returns the polygon index of points in y; if x is a SpatialPolygonsDataFrame, 
+#    a data.frame with rows from x corresponding to points in y is returned.
+
+indices <- over( ne_states, grid.points )
+head(indices)
+indices <- over( grid.points, ne_states )
+head(indices)
+sum(!is.na(indices$STATEFP))
+sum(is.na(indices$STATEFP))
+class(indices)
+
+ne_points <- grid.points[!is.na(indices$STATEFP), ]
+
+nrow(ne_points)
+
+plot(ne_points)
+
+plot(weather.grid.poly)
+plot(states.poly,add=T, border="orange")
+weather.grid.poly<-voronoipolygons(grid.points)
+head(weather.grid.poly@data)
+
+```
+
+```{r}
+load( "C:/ALR/Models/cache/data/weather_sets/livneh_1950_2013/weather.grid.poly.rdata", verbose=T)
+      
+nrow(weather.grid.poly)
+
+plot(weather.grid.poly)
+plot(states.poly, border="orange", add=T)
+```
+      
+      

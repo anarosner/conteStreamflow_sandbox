@@ -1,0 +1,75 @@
+```{r}
+
+
+
+```
+
+```{r}
+rm(
+     data_wide)
+
+data_wide <-   select( site_lookup, site_type, site_id, basin_id, grid ) %>% 
+     right_join(
+               spread( q_long, metric, value ),    #flow data
+                by="site_id") %>%                  #join by site id  
+     inner_join( 
+               spread(w_long, metric, value),      #weather data
+                 by=c("grid","date") ) %>%         #join by grid
+     inner_join( 
+               b_wide,                             #basin char
+                 by="site_id")                     #join by site (gage) id 
+                                            #since this particular version has already been joined)
+dim(data_wide)   
+
+# later replace with...
+#      inner_join( 
+#           b_wide,                             #basin char
+#                by="basin_id")                 #join by feature id
+
+```
+
+```{r}
+
+View(data_wide)
+
+```
+
+
+```{r}
+
+nrow(site_lookup)
+nrow(b_wide)
+
+nrow(q_long)
+nrow(spread( q_long, metric, value ))
+nrow(spread(w_long, metric, value))
+
+nrow(data_wide)
+
+# > nrow(
+# + site_lookup %>% 
+# +      right_join(
+# +           spread( q_long, metric, value ),    #flow data
+# +                by="site_id") %>%              #join by site id  
+# +      inner_join( 
+# +           spread(w_long, metric, value),      #weather data
+# +                by=c("grid","date") )
+# + )
+# [1] 14681
+# > nrow(
+# + site_lookup %>% 
+# +      right_join(
+# +           spread( q_long, metric, value ),    #flow data
+# +                by="site_id") %>%              #join by site id  
+# +      inner_join( 
+# +           spread(w_long, metric, value),      #weather data
+# +                by=c("grid","date") ) %>%      #join by grid
+# +      inner_join( 
+# +           b_wide,                             #basin char
+# +                by="basin_id")
+# + )
+# [1] 15565
+
+
+```
+
