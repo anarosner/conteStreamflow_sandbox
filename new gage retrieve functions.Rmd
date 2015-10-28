@@ -114,7 +114,8 @@ nrow(gages_no_barr)
 plot(gages_no_barr)
 plot(states.poly, add=T, border="orange")
 
-hist(gages_no_barr$AreaSqKM)
+hist( gages_no_barr$AreaSqKM, breaks=20 )
+hist( gages_no_barr$AreaSqKM, breaks=2 )
 
 
 save(gages_no_barr,file="C:/ALR/Models/conteStreamflow_sandbox/gages_no_barr.rdata")
