@@ -1,0 +1,122 @@
+```{r}
+require(plyr)
+require(lubridate)
+require(ggplot2)
+require(dplyr)
+```
+
+```{r}
+
+month_max_flow <- flow_new_england[["wateryear"]] %>% 
+                    select( flow_max, flow_max_date ) %>% 
+                    mutate( flow_max_month=month(flow_max_date), year=year(flow_max_date) )
+
+head(month_max_flow,10)
+
+
+```
+
+```{r}
+
+par(mfrow=c(1,2))
+hist( month_max_flow$flow_max_month, col="steelblue4", border="navy", 
+      main="max annual flow: count of occurence in each month" )
+plot( flow_max~flow_max_month, data=month_max_flow, col="steelblue4", pch=18, cex=.7,
+      main="max annual flow by month")
+
+```
+
+```{r}
+
+
+boo <- d_month_rain %>% 
+     select( flow_max, month_date, precip_e_max, precip_raw_max, precip_sum_3_max ) %>% 
+     mutate( month=month(month_date) )
+
+bb <- ggplot( data=boo, aes( x=log(precip_e_max), y=log(flow_max) ) ) +
+     geom_point( alpha=.1, color="steelblue4" ) +
+     xlim(0,6) + scale_y_continuous(breaks=seq(from=-4,to=12,by=2),limits=c(-4,10)) +
+     # geom_smooth(method='lm') +
+     facet_wrap( ~month ) +
+     theme_bw() +
+     ggtitle( "Max effective precip vs max flow" )
+
+bb
+
+
+bb %+% aes(x=log(precip_raw_max)) +
+     ggtitle( "Max raw precip vs max flow" )
+
+bb %+% aes(x=log(precip_sum_3_max)) +
+     ggtitle( "Max 3-day effective precip vs max flow" ) 
+
+
+
+# ggplot( data=boo, aes( x=log(precip_raw_max), y=log(flow_max) ) ) +
+#      geom_point( alpha=.2, xlim(0,6), color="steelblue4" ) +
+#      xlim(0,6) +
+#      facet_wrap( ~month ) +
+#      theme_bw() +
+#      ggtitle( "Max raw precip vs max flow" )
+
+
+```
+
+```{r}
+foo <- d_month_rain %>% 
+     select( precip_e_max, precip_raw_max, precip_e_total, precip_raw_total, month_date ) %>% 
+     mutate( month=month(month_date) )
+
+ggplot( data=foo, aes( x=log(precip_raw_max) ) ) +
+     geom_histogram() + 
+     geom_vline(aes(xintercept=mean(log(precip_raw_max))), color="blue",lty=2) +
+     facet_wrap( ~month ) +
+     theme_bw() +
+     ggtitle( "" )
+
+ggplot( data=foo, aes( x=(precip_raw_max) ) ) +
+     geom_histogram() + 
+     geom_vline(aes(xintercept=mean((precip_raw_max))), color="blue",lty=2) +
+     facet_wrap( ~month ) +
+     theme_bw() +
+     ggtitle( "" )
+
+ggplot( data=foo, aes( x=log(precip_raw_total) ) ) +
+     geom_histogram() + 
+     geom_vline(aes(xintercept=mean(log(precip_raw_total))), color="blue",lty=2) +
+     facet_wrap( ~month ) +
+     theme_bw() +
+     ggtitle( "" )
+
+```
+
+```{r}
+goo <- d_month_rain %>% 
+     select( flow_max,flow_max_date, precip_e_max, precip_raw_max, precip_sum_3_max, 
+             max_precip_e_date, max_precip_raw_date, max_precip_3_date, 
+             da_nwis_sqkm, month, year) %>% 
+     mutate( flow_max_doy=format(flow_max_date,"%j"), 
+             precip_max_e_doy=format(max_precip_e_date,"%j"),
+             precip_max_raw_doy=format(max_precip_raw_date,"%j"),
+             precip_max_3_doy=format(max_precip_3_date,"%j"), 
+             precip_max_raw_diff=as.numeric(flow_max_date-max_precip_raw_date), 
+             precip_max_3_diff=as.numeric(flow_max_date-max_precip_3_date) )
+
+
+gg <- ggplot( data=goo, aes(x=flow_max_doy, y=precip_max_raw_doy) ) +
+     geom_point( color="steelblue4", alpha=.3 ) +
+     facet_wrap( ~month, scales="free") +
+     theme_bw()
+gg %+% aes(y=precip_max_e_doy)
+gg %+% aes(y=precip_max_3_doy)
+
+gg2 <- ggplot( data=goo, aes( x=log(flow_max), y=precip_max_raw_diff ) ) +
+     geom_point( color="darkorange4", alpha=.3 ) +
+     facet_wrap( ~month ) +
+     theme_bw()
+gg2
+gg2 %+% aes( y=precip_max_3_diff )
+
+
+```
+
