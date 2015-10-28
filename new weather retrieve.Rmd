@@ -5,14 +5,56 @@
 # #' @description import weather
 # #' @export
 weather_retrieve <- function( sites, 
-                              set="livneh_1950_2013",
-                              periods=c("day","month","wateryear") ) {
+                              periods=c("day","month","wateryear"),
+                              weather_set="livneh_1950_2013" ) {
                               #later, add arguments by which user can customize summarization and lag and antecedents
+     
+     ### setup
+     ##
+     #
+     
+     cache_check()
+     
+     require(plyr)
+     require(lubridate)
+     require(EcoHydRology)
+     require(DataCombine)
+     require(zoo)
+     require(dplyr)
+     require(tidyr)
+     
+     #a whole bunch of stuff to be added as parameters
+     # will figure out how best to include them without creating something unreadable, and then add them in
+     #summary columns
+     #      cols_total <- c( "precip_e", "precip_raw", "pet", "gdd", "swe_day", "frozen_day"  )
+     #      cols_mean <- c( "tmax", "tmin" )
+     #      cols_max <- c( "precip_e", "precip_raw", 
+     #         "precip_e_sum_3", "precip_e_sum_5", "precip_raw_sum_3", "precip_raw_sum_5", 
+     #         "swe_doy"  )
+     #      cols_min <- c()
+     
+     #lag columns month and wateryear
+     #      lag1_cols=c( 
+     #           "n_days_weather","precip_e_total","pet_total","gdd_total","swe_day_total",
+     #           "frozen_day_total","tmax_mean","tmin_mean" )
+     #      lag2_cols=c( 
+     #           "n_days_weather","precip_e_total","pet_total",
+     #           "swe_day_total","tmax_mean","tmin_mean" )
+     #lag columns daily
+     #      lag1_cols=
+     #           c("precip_e","precip_raw","swe","pet","gdd","tmax","tmin"),
+     #      lag2_cols=
+     #           c("precip_e","precip_raw","swe","pet","gdd","tmax","tmin")
+                          
+     #which antecedent periods to calculate for which variables
      ante_days_precip_e=c(7,30,60,90)
      ante_days_gdd=NULL
      ante_days_pet=c(30,90)
+     #right now only calculates the antecedent conditions for the max precip_e event
+     #maybe customize this in the future
      
-     
+     #function parameters to add
+     # require_lag1=TRUE, require_lag2=TRUE
      
      ### setup and checks
      ##
@@ -20,12 +62,11 @@ weather_retrieve <- function( sites,
      
      #check that sites have been assigned weather grid.  
           #(later, change to just call function to assign weather grid if needed rather than warning)
-     if ( !("weather.filename" %in% names(sites)) )
-          stop("Please first plot sites to weather grids using \"gage.place.weather.grid\" ")
+     if ( !( "weather_set" %in% names(sites) & "weather_region" %in% names(sites) & "weather_filename" %in% names(sites)) )
+          stop("Please first plot sites to weather grids using")
      
-
      #allow function to take sites argument as *either* data frame or spatial data frame
-     if ( attributes(class(sites))$package == "sp" )
+     if ( !is.null(attributes(class(sites))) && attributes(class(sites))$package == "sp" )
           sites <- sites@data
      
      #if all rows don't have the same weather set, throw an error
@@ -33,23 +74,20 @@ weather_retrieve <- function( sites,
           stop( "you must use a single weather set")
      weather_set <- unique( sites$weather_set )
      
-     #change to look this up in cache/data/weather_set directory
-     weather_set_url <- "ftp://192.12.137.7/pub/dcp/archive/OBS/livneh2014.1_16deg/ascii/daily/"
-     
      ### determine grid cells needed, weather set, and info needed for weather set
      ##
      #
      
      # generate a data.frame of *unique* weather grids used by all sites
      select_weather_files<-sites[,c("weather_filename","weather_region" ,"weather_set")]
-     select_weather_files<-select_weather_files[ !duplicated(select_weather_files$weather_filename), ]
+     select_weather_files<-select_weather_files[ !duplicated(select_weather_files$weather_filename), ] 
+               #note: it's assumed that there aren't identical filenames within different directories
      
      
      ## load weather set info/data
-     #
-     
-#    template_w_date <- some function that loads template of dates by specifying the weather_set
-#    template_w_cols <- some function that loads template of columns by specifying the weather_set
+     cache_setup_weather_set( weather_set=weather_set, weather_region=unique(select_weather_files$weather_region) )
+     cache_read_rdata( file="weather_set_info.bz2", dir=paste0("weather/",weather_set) )
+          # this will load the url, column names, and dates
                # these unfortunately have to be hardcoded, with different values for each (of the three) data sets
                #    neither livneh or mauer data sets have column names
                #    livneh sets have no dates. mauer set has dates, but it's not in standard date format, 
@@ -59,15 +97,28 @@ weather_retrieve <- function( sites,
                #         but I've quadruple checked that it all matches up...)
 
 
-          # load table of lat/long of centroids of each weather grid cell. 
+     # load table of lat/long of centroids of each weather grid cell. 
      #    these lat values are used for snow melt and PET models
-     load( file.path( "C:/ALR/Models/cache/data/weather_sets", weather_set, "weather_grid_coords.rdata"), verbose=T )
+     cache_read_rdata( file="weather_grid_coords.bz2", dir=paste0("weather/",weather_set) )
 
-     
      ## check/download weather data files
      # 
       
-     weather_file_download( select_weather_files )
+     # weather_file_download( select_weather_files )
+     for (j in unique(select_weather_files$weather_region)) {
+
+          # dir_create_conditional( file.path(cache_dir_global,"data","weather",weather_set,j), quiet=F )
+          
+          files <- select_weather_files[ select_weather_files$weather_region==j, "weather_filename"]
+
+          for ( k in files ) {
+               cache_download( k, dir=file.path("weather",weather_set,j), 
+                               server_url=file.path(weather_set_url,j,fsep="/") )
+          }
+     }
+#                curl_download( url = paste0(weather_set_url,"/",j,"/",k),
+#                          destfile = file.path(cache_dir_global,"data","weather",weather_set,j,k) )
+     
      
      ### load, process, and save weather data timeseries
      ##
@@ -84,11 +135,11 @@ weather_retrieve <- function( sites,
      
      ## loop through weather gridcells/files
      #
-     cat(paste( "Begin processing", nrow(selected.weather.files), 
+     cat(paste( "Begin processing", nrow(select_weather_files), 
                 "unique weather files used for", nrow(sites),"sites","\n" ))
      
-     # for (i in 1:nrow(select_weather_files) ) {
-     for (i in 1:10)  {
+     for (i in 1:nrow(select_weather_files) ) {
+     # for (i in 1:10)  {
      
           cat( paste( "  --  Processing file", i, "of", nrow(select_weather_files), "  --  \n" ))
                     
@@ -97,13 +148,16 @@ weather_retrieve <- function( sites,
 
           ## load raw data file for grid cell
           #
-          x <- read.table( file.path("C:/ALR/Models/cache/data/weather_data", 
-                              weather_set, 
-                              select_weather_files$weather_region[i],
-                              select_weather_files$weather_filename[i]), 
-                              header=F) #mauer data set has headers, livneh doesn't...
-          x <- setNames( x, template_w_cols )
-          x <- cbind( template_w_date, x )
+          x <- cache_read_table( file=select_weather_files$weather_filename[i], dir= 
+                              file.path("weather",weather_set,select_weather_files$weather_region[i]),
+                              weather_set_table_params )
+#                     x <- read.table( file.path("C:/ALR/Models/cache/data/weather_data", 
+#                               weather_set, 
+#                               select_weather_files$weather_region[i],
+#                               select_weather_files$weather_filename[i]), 
+                              # header=F) #mauer data set has headers, livneh doesn't...
+          x <- setNames( x, weather_set_cols )
+          x <- cbind( weather_set_dates, x )
           
                         
           ## weather process calculations (daily timestep)
@@ -141,10 +195,10 @@ weather_retrieve <- function( sites,
                # day (lags are a little different for day)
                if ( j == "day" )  {
                     x_period <- weather_lag( x_period, 
-                                         lag1_cols=
-                                              c("precip_e","precip_raw","swe","pet","gdd","tmax","tmin"),
-                                         lag2_cols=
-                                              c("precip_e","precip_raw","swe","pet","gdd","tmax","tmin") )
+                                    lag1_cols=
+                                        c("precip_e","precip_raw","swe","pet","gdd","tmax","tmin"),
+                                    lag2_cols=
+                                         c("precip_e","precip_raw","swe","pet","gdd","tmax","tmin") )
                }
                #month or wateryear
                else  
@@ -167,13 +221,21 @@ weather_retrieve <- function( sites,
                #
                
                #for months, remove records at the beginning that don't have lag values
-               if ( j=="month" ) 
-                    x_period <- x_period %>% filter( !is.na(n_days_lag2) )
+               if ( j=="month" ) {
+                    x_period <- x_period %>% 
+                         filter( !is.na(n_days_weather_lag2) )
+                    x_period <- x_period %>% 
+                         select( -n_days_weather_lag1, -n_days_weather_lag2 )
+               }
                
                #for wateryear, remove records at beginning and end that don't have complete wateryear
                     #all records have complete calendar year, so our criteria are a bit different
-               if ( j=="wateryear" ) 
-                    x_period <- x_period %>% filter( n_days >= 365 )
+               if ( j=="wateryear" ) {
+                    x_period <- x_period %>% 
+                         filter( n_days_weather >= 365 )
+                    x_period <- x_period %>% 
+                         select( -n_days_weather_lag1, -n_days_weather_lag2 )
+               }
                
                
                ## save weather file/set info
@@ -197,13 +259,13 @@ weather_retrieve <- function( sites,
 
      return( weather_records )
 
-}#end function
+}#end weather_retrieve function
      
 ```
 
 ```{r}
-library(EcoHydRology)
-library(zoo)
+
+
 weather_raw_calc <- function( x, centroid ) {
      
      #run snowmelt model
@@ -246,8 +308,10 @@ weather_raw_calc <- function( x, centroid ) {
 
           #     x[,"doy"] <- as.numeric(format(x$date, format="%j"))
 
-     x[,"precip_sum_3"] <- rollsum( x$precip_e, k=3, align="right", fill=NA )
-     x[,"precip_sum_5"] <- rollsum( x$precip_e, k=5, align="right", fill=NA )
+     x[,"precip_e_sum_3"] <- rollsum( x$precip_e, k=3, align="right", fill=NA )
+     x[,"precip_e_sum_5"] <- rollsum( x$precip_e, k=5, align="right", fill=NA )
+     x[,"precip_raw_sum_3"] <- rollsum( x$precip_raw, k=3, align="right", fill=NA )
+     x[,"precip_raw_sum_5"] <- rollsum( x$precip_raw, k=5, align="right", fill=NA )
      
      return(x)
 
@@ -261,7 +325,6 @@ weather_raw_calc <- function( x, centroid ) {
 
 
 ```{r}
-library(DataCombine)
 
 weather_antecedent <- function( x, ante_days_precip_e=c(7,30,60),
                                 ante_days_pet=c(30,60,90),
@@ -297,7 +360,9 @@ weather_summarize <- function( x_calc, j ) {
      
      cols_total <- c( "precip_e", "precip_raw", "pet", "gdd", "swe_day", "frozen_day"  )
      cols_mean <- c( "tmax", "tmin" )
-     cols_max <- c( "precip_e", "precip_raw", "precip_sum_3", "precip_sum_5", "swe_doy"  )
+     cols_max <- c( "precip_e", "precip_raw", 
+                    "precip_e_sum_3", "precip_e_sum_5", "precip_raw_sum_3", "precip_raw_sum_5", 
+                    "swe_doy"  )
      cols_min <- c()
 
      # swe_doy_total is used as an indicator of the last day of the wateryear (in spring) 
@@ -312,7 +377,7 @@ weather_summarize <- function( x_calc, j ) {
                select_( paste0(j,"_date") ) %>%   
                group_by_( paste0(j,"_date") )  %>% #group by date representing the period, 
                                                   # here and in code block below
-               summarize( n_days = n() ) #count the number of records in that period
+               summarize( n_days_weather = n() ) #count the number of records in that period
      
      #add each summary metric
      if (length(cols_total) > 0 ) { #summarize and merge only if there columns we want to total of
@@ -387,8 +452,10 @@ weather_summarize_date <- function( x_calc, x_summary, j ) {
                      max_precip_e_ties=max_count_date( precip_e, date ),
                      max_precip_raw_date=max_which_date( precip_raw, date ), 
                      max_precip_raw_ties=max_count_date( precip_raw, date ),
-                     max_precip_3_date=max_which_date( precip_sum_3, date ), 
-                     max_precip_3_ties=max_count_date( precip_sum_3, date ) ) 
+                     max_precip_e_3_date=max_which_date( precip_e_sum_3, date ), 
+                     max_precip_e_3_ties=max_count_date( precip_e_sum_3, date ),
+                     max_precip_raw_3_date=max_which_date( precip_raw_sum_3, date ), 
+                     max_precip_raw_3_ties=max_count_date( precip_raw_sum_3, date ) ) 
      
      x_summary <- merge( x_summary, x_date, by=paste0(j,"_date") )
 
@@ -397,15 +464,16 @@ weather_summarize_date <- function( x_calc, x_summary, j ) {
 ```
 
 ```{r}
-library(DataCombine)
      
 weather_lag <- function( y,
                          lag1_cols=c( 
-                              "n_days","precip_e_total","pet_total","gdd_total","swe_day_total",
-                              "frozen_day_total","tmax_mean","tmin_mean" ),
+                              "n_days_weather","precip_e_total", "precip_raw_total",
+                              "pet_total","gdd_total","tmax_mean","tmin_mean",
+                              "swe_day_total","frozen_day_total" ),
                          lag2_cols=c( 
-                              "n_days","precip_e_total","pet_total",
-                              "swe_day_total","tmax_mean","tmin_mean" ) ) {
+                              "n_days_weather","precip_e_total", "precip_raw_total",
+                              "pet_total","tmax_mean","tmin_mean",
+                              "swe_day_total" ) ) {
      
      # these will soon be moved up as arguments, to this function and the weather_retrieve function that calls it
      #    so the summary metrics can be customized by the user
@@ -450,7 +518,10 @@ weather_fetch_ante <- function(  x_period, x_calc, j, date_col="max_precip_e_dat
      return( x_period )
      
 }
+```
 
+
+```{r}
 #      head(x_period)
 #      for ( k in cols ) {
 #           x_period[,k] <- temp[ as.character(x_period[,"date_col"]), k]
@@ -479,54 +550,55 @@ weather_fetch_ante <- function(  x_period, x_calc, j, date_col="max_precip_e_dat
 #           }
      
 
-}
+
 
 ```
 
      
 ```{r}
-weather_file_download <-function( select_weather_files ) {
-}
-     
-       
-          #      #downloads weather data as needed
-          #      for (j in unique(selected.weather.files$region)) {
-          #           #set up directory for weather region, if it doesn't exist
-          #           setwd( file.path(cache.dir.global, "data", "weather_data") )
-          #           dir.conditional.create( new.dir=j, quiet=T )
-          # 
-          #           #download weather files as needed, and save in cache
-          #           #(only download, doesn't read them into r at this point)
-          #           for (k in selected.weather.files$weather.filename[selected.weather.files$region==j]) {
-          #                cache.load.data( file=k, dir=paste0("weather_data","/",j), cache.only=T, quiet=T )
-          #           }
-          #      }
+# weather_file_download <-function( select_weather_files ) {
+# }
+#      
+#        
+#           #      #downloads weather data as needed
+#           #      for (j in unique(selected.weather.files$region)) {
+#           #           #set up directory for weather region, if it doesn't exist
+#           #           setwd( file.path(cache.dir.global, "data", "weather_data") )
+#           #           dir.conditional.create( new.dir=j, quiet=T )
+#           # 
+#           #           #download weather files as needed, and save in cache
+#           #           #(only download, doesn't read them into r at this point)
+#           #           for (k in selected.weather.files$weather.filename[selected.weather.files$region==j]) {
+#           #                cache.load.data( file=k, dir=paste0("weather_data","/",j), cache.only=T, quiet=T )
+#           #           }
+#           #      }
 ```
 
 ```{r temp initial download}
 
 
-     #INITIAL DOWNLOAD
-     #this code was used to download all weather files needed for in new england gages
-     #    modify code to check which directories for region are already in cache, 
-     #    which weather files are already downloaded,
-     #    only download what needs to be, etc
-     library(curl)
-     for ( j in unique(select_weather_files$weather_region) ) {
-          #set up directory for weather region
-          dir.create( file.path("C:/ALR/Models/cache/data/weather_data/", weather_set, j) )
-     }
-     
-     for (j in unique(select_weather_files$weather_region)) {
-          print( j )
-          
-          files <- select_weather_files[ select_weather_files$weather_region==j, "weather_filename"]
-          print( paste( length(files), "files" ) )
-
-          for ( k in files )
-               curl_download( url = paste0(weather_set_url,"/",j,"/",k),
-                         destfile = file.path("C:/ALR/Models/cache/data/weather_data",weather_set,j,k) )
-     }
+#      #INITIAL DOWNLOAD
+#      #this code was used to download all weather files needed for in new england gages
+#      #    modify code to check which directories for region are already in cache, 
+#      #    which weather files are already downloaded,
+#      #    only download what needs to be, etc
+#      require(curl)
+# 
+#      for ( j in unique(select_weather_files$weather_region) ) {
+#           #set up directory for weather region
+#           dir.create( file.path("C:/ALR/Models/cache/data/weather_data/", weather_set, j) )
+#      }
+#      
+#      for (j in unique(select_weather_files$weather_region)) {
+#           print( j )
+#           
+#           files <- select_weather_files[ select_weather_files$weather_region==j, "weather_filename"]
+#           print( paste( length(files), "files" ) )
+# 
+#           for ( k in files )
+#                curl_download( url = paste0(weather_set_url,"/",j,"/",k),
+#                          destfile = file.path("C:/ALR/Models/cache/data/weather_data",weather_set,j,k) )
+#      }
 
 
 
