@@ -1,0 +1,114 @@
+```{r}
+require(ggplot2)
+
+
+```
+
+
+```{r}
+
+model0 <- clifs_create( d_month_rain, 
+                         formula="log(flow_max) ~ log(da_model_sqmi) +  
+                              log(precip_raw_max) + log(precip_raw_total) + 
+                              log(precip_sum_3_max) + 
+                              log(precip_e_total_lag1) + log(precip_e_total_lag2) +
+                              log(pet_total) + log(pet_total_lag1) +
+                              fwsopenwater + slope_pcnt",
+                        # weights_col="precip_raw_total", weight_function=log )
+                        # weights="log(precip_raw_total)" )
+                         weight_function=function(df) log(df[,"precip_raw_total"]) )
+
+```
+
+```{r}
+
+clifs_summary(model0)
+clifs_periods_summary(model0, pause = T)
+
+```
+
+
+```{r}
+
+par(mfrow=c(2,2))
+for(i in 1:12) {
+     plot(model0[[i]], which=1:2, main=paste0("clifs created wls, ",i))
+     # plot(model1[[i]], which=1:2, main=paste0("ols, ",i))
+     plot(model2[[i]], which=1:2, main=paste0("wls, ",i))
+}
+summary(model0[[i]])
+summary(model2[[i]])
+sum( model2[[i]]$weights  -model0[[i]]$weights )
+head(model0[[i]]$weights)
+head(model2[[i]]$weights)
+```
+
+
+```{r}
+model1 <- vector( "list", length=12 )
+residmodel1 <- vector( "list", length=12 )
+for ( i in 1:12 ) {
+     model1[[i]] <- lm( log(flow_max) ~ log(da_model_sqmi) + log(precip_raw_max) + 
+                             log(precip_sum_3_max) + log(precip_raw_total) +
+                             log(precip_e_total_lag1) + log(precip_e_total_lag2) +
+                             log(pet_total) + log(pet_total_lag1) +
+                             # tmax_mean + tmax_mean_lag1 +
+                              fwsopenwater + slope_pcnt, 
+                        data=filter_(d_month_rain, paste0( "month==", i ) ),
+                        na.action=na.exclude )
+     rls <- data.frame( resid=( model1[[i]]$residuals ),
+                        precip=filter_(d_month_rain, paste0( "month==", i ) )$precip_raw_total ) #rhat log squared
+     residmodel1[[i]] <- lm( (resid)~(precip), data=rls )
+     plot(precip~resid,data=rls, main=i)
+     abline(v=0,col="red",lty=2)
+     abline(v=c(-2,2),col="grey",lty=2)
+}
+
+
+```
+
+
+
+```{r}
+
+par(mfrow=c(2,3))
+plot(residmodel1[[i]], which=1:6)
+
+for(i in 1:12)
+     print(summary(residmodel1[[i]]))
+
+```
+
+
+```{r}
+model2 <- vector( "list", length=12 )
+for ( i in 1:12 ) {
+     model2[[i]] <- update( model1[[i]], 
+                            weights=log(precip_raw_total) )
+                            # weights=log(precip_raw_total) )
+}
+          
+#           lm(  log(flow_max) ~ log(da_model_sqmi) + log(precip_raw_max) + 
+#                              log(precip_sum_3_max) + log(precip_raw_total) +
+#                              log(precip_e_total_lag1) + log(precip_e_total_lag2) +
+#                              log(pet_total) + log(pet_total_lag1) +
+#                              # tmax_mean + tmax_mean_lag1 +
+#                              fwsopenwater + slope_pcnt, 
+#                          weights=log(precip_raw_total),
+#                          data=filter_(d_month_rain, paste0( "month==", i ) ),
+#                          na.action=na.exclude )
+# }
+
+
+```
+
+
+```{r}
+
+par(mfrow=c(2,2))
+for(i in 1:12) {
+     plot(model1[[i]], which=1:2, main=paste0("OLS, ",i))
+     plot(model2[[i]], which=1:2, main=paste0("WLS, ",i))
+}
+
+```
