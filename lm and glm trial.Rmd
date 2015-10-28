@@ -1,0 +1,346 @@
+```{r}
+library(plyr)
+
+library(smwrBase)
+library(smwrStats)
+library(topmodel)
+
+library(ggplot2)
+library(tidyr)
+library(magrittr)
+
+
+
+library(dplyr)
+```
+
+
+```{r}
+#leave out surf coarse for now
+sum(is.na(d_month$surfcoarse))
+#work w/ only months w/ non-zero precip
+d_month_rain <- d_month %>% 
+                    filter(precip_e_total>0) %>% 
+                    filter(precip_e_total_lag1>0) %>% 
+                    filter(precip_e_total_lag2>0)
+nrow(d_month %>% filter(precip_e_total_lag2==0))/nrow(d_month)
+hist( (d_month %>% filter(precip_e_total==0))[,"month"] )
+```
+
+```{r}
+
+model1 <- vector( "list", length=12 )
+for ( i in 1:12 ) {
+     model1[[i]] <- lm( log(flow_mean) ~ log(da_model_sqmi) + log(precip_e_total) +
+                             log(precip_e_total_lag1) + log(precip_e_total_lag2) +
+                             log(pet_total) + log(pet_total_lag1) +
+                             # tmax_mean + tmax_mean_lag1 +
+                              fwsopenwater + slope_pcnt, 
+                        data=filter_(d_month_rain, paste0( "month==", i ) ),
+                        na.action=na.exclude )
+}
+                         
+par(mfrow=c(2,3))
+for ( i in 1:12 ) {
+     # print(paste0("==================  ", i, "  =================="))
+     # print(summary(model1[[i]]))
+     plot( 
+           log(filter_(d_month_rain, paste0( "month==", i ) )[,"da_model_sqmi"]),
+           # log(filter_(d_month_rain, paste0( "month==", i) )[,"precip_e_total"]),
+           # model1[[i]]$fitted.values,
+           model1[[i]]$residuals,
+           main=i, ylim=c(-4,4), pch=18, cex=.4 )
+     abline(h=0,col="red",lty=2)
+     abline(h=c(-2,-1,1,2),col="grey",lty=2)
+}
+par(mfrow=c(2,2))
+for ( i in 1:12 ) {
+     plot(model1[[i]], which=1:2, main=paste(month.name[i], ", log LM") )
+     plot(model2[[i]], which=1:2, main=paste(month.name[i], ", GLM") )
+}
+```
+
+```{r}
+
+model2 <- vector( "list", length=12 )
+for ( i in 1:12 ) {
+     model2[[i]] <- glm( flow_mean ~ da_model_sqmi + precip_e_total +
+                              precip_e_total_lag1 + precip_e_total_lag2 +
+                              pet_total + pet_total_lag1 +
+                              # tmax_mean + tmax_mean_lag1 +
+                              fwsopenwater + slope_pcnt + surfcoarse, 
+                         data=filter_(d_month_rain, paste0( "month==", i ) ), 
+                         family=Gamma(link="log") )
+}
+
+par(mfrow=c(2,2))
+for ( i in 1:12 ) {
+     plot(model2[[i]], which=1:2, main=i)
+}
+
+```
+
+```{r}
+par(mfrow=c(2,2))
+for ( i in 1:12 ) {
+     plot( exp(model1[[i]]$fitted.values), exp(model1[[i]]$residuals),
+          main=paste("log lm, trans resid",i), ylim=c(-5,30), pch=18, cex=.4 )
+     abline(h=0,col="red",lty=2)
+     # abline(h=c(-2,-1,1,2),col="grey",lty=2)
+     # plot( model1[[i]], which=1:2, main=paste("log lm",i) )
+     
+     plot( (model2[[i]]$fitted.values), (model2[[i]]$residuals),
+           main=paste("glm resid",i), ylim=c(-5,30), pch=18, cex=.4 )
+     abline(h=0,col="red",lty=2)
+     # abline(h=c(-2,-1,1,2),col="grey",lty=2)
+     # plot( model2[[i]], which=1:2, main=paste("glm",i) )
+}
+
+for ( i in 1:12 ) {
+     print(paste0("==================  ", i, "  =================="))
+     print("   lm PRESS   ")
+     print(press(model1[[i]]))
+     print("   glm PRESS   ")
+     print(press(model2[[i]]))
+}
+
+```
+
+
+
+
+```{r}
+model3 <- vector( "list", length=12 )
+for ( i in 1:12 ) {
+     model3[[i]] <- lm( log(flow_max) ~ log(da_model_sqmi) +
+                             log(precip_e_max) + log(precip_sum_3_max) +
+                             log(precip_e_total) +
+                             log(precip_e_total_lag1) + 
+                             log(precip_e_total_lag2) +
+                             log(pet_total) + log(pet_total_lag1) +
+                             # tmax_mean + tmax_mean_lag1 +
+                              fwsopenwater + slope_pcnt, 
+                        data=filter_(d_month_rain, paste0( "month==", i ) ),
+                        na.action=na.exclude )
+}
+
+```
+
+
+```{r}
+model4 <- vector( "list", length=12 )
+for ( i in 1:12 ) {
+     model4[[i]] <- lm( log(flow_max) ~ log(da_model_sqmi) +
+                             log(precip_e_max) + log(precip_sum_3_max) +
+                             log(precip_e_total) +
+                             log(precip_e_total_lag1) + 
+                             log(precip_e_total_lag2) +
+                             log(pet_total) + log(pet_total_lag1) +
+                             # tmax_mean + tmax_mean_lag1 +
+                              fwsopenwater + slope_pcnt, 
+                        data=filter_(d_month_rain, paste0( "month==", i ) ),
+                        weights=log(precip_e_total),
+                        na.action=na.exclude )
+}
+
+```
+
+
+```{r}
+par(mfrow=c(2,2))
+for ( i in 1:12 ) {
+     plot(model3[[i]], which=1:2, main=paste0(month.name[i],", max LS log-trans") )
+     plot(model4[[i]], which=1:2, main=paste0(month.name[i],", max WLS log-trans") )
+}
+```
+
+
+```{r}
+
+r_lm <- c()
+r_glm <- c()
+
+for ( i in 1:12 ) {
+     for ( k in 1:length(model2[[i]]$fitted.values) ) {
+          
+     temp <- update( model1[[i]], 
+                         data=filter_(d_month_rain, paste0("month==", i))[-k,] )
+     r_lm[k] <- sum( ( exp(temp$residuals) )^2 )
+     
+     temp <- update( model2[[i]], 
+                         data=filter_(d_month_rain, paste0("month==", i))[-k,] )
+     r_glm[k] <- sum( (temp$residuals)^2 )
+     
+     }
+}
+
+sum(r_glm)
+sum(r_lm)
+
+plot(r_lm, pch=16, cex=.5)
+plot(r_glm, pch=16, cex=.5, col="red")
+
+```
+
+```{r}
+library(lmom)
+
+lmrd(samlmu(airquality$Ozone))
+
+# An example that illustrates the sampling variability of L-moments
+#
+# Generate 50 random samples of size 30 from the Gumbel distribution
+# - stored in the rows of matrix mm
+mm <- matrix(quagum(runif(1500)), nrow=50)
+#
+# Compute the first four sample L-moments of each sample
+# - stored in the rows of matrix aa
+aa <- apply(mm, 1, samlmu)
+aa<-t(aa)
+head(aa)
+class(aa)
+#
+# Plot the L-skewness and L-kurtosis values on an L-moment ratio
+# diagram that also shows (only) the population L-moment ratios
+# of the Gumbel distribution
+lmrd((aa), dist="", twopar="G", col="red")
+
+lmrd(t(aa))
+
+bad <- d_month_rain %>% 
+     group_by( month, site_no ) %>% 
+     summarize( n=n() ) %>% 
+     filter( n<=2 )
+
+# boo1 <- d_month_rain %>% 
+#      group_by( month, site_no ) %>% 
+#      summarize( n=n() )  
+boo <- d_month_rain %>% 
+     # filter(!( site_no %in% bad$site_no )) %>% 
+     group_by( month, site_no ) %>% 
+     summarize( t_3=samlmu(flow_mean)["t_3"], t_4=samlmu(flow_mean)["t_4"], n=n() ) %>% 
+     filter( n>=10 )
+# head(boo)
+
+par(mfrow=c(1,1))
+for( i in 1:12 ){
+     boo2 <- boo %>% filter_( paste0( "month==", i ) )
+     lmrd( boo2$t_3, boo2$t_4, main=i, col="darkgrey",
+           distributions="GPA GNO PE3", twopar="EXP NOR")
+}
+
+
+# summarize( foo=mean(flow_mean) )
+head(boo)
+View(boo %>% filter(is.na(t_3)))
+
+View(samlmu( filter_(d_month_rain, "month==1")[,"flow_mean"] ))
+lmrd(  samlmu( filter_(d_month_rain, "month==1")[,"flow_mean"] )  )
+
+
+```
+
+
+```{r}
+# press_lm_glm <- function (model) 
+# {
+#     if ( inherits(model, "lm") | inherits(model, "lm") ) {
+#         h <- influence(model)$hat
+#         r <- resid(model)
+#         ei <- r/(1 - h)
+#         press <- sum( ei^2, na.rm = TRUE)
+#     }
+#     else 
+#          stop("Input must be a 'lm' or 'glm' object")
+#      
+#     return( press )
+# }
+
+
+
+names(influence(model2[[i]]))
+names((model2[[i]]))
+head(influence(model2[[i]])[["hat"]])
+head(resid(model2[[i]]))
+
+
+
+```
+
+
+```{r}
+
+# for ( i in 1:12 ) {
+#      model3[[i]] <- glm( flow_mean ~ da_model_sqmi + 
+#                               precip_e_total_lag1 + precip_e_total_lag2 +
+#                               tmax_mean + tmax_mean_lag1 +
+#                               fwsopenwater + slope_pcnt + surfcoarse, 
+#                          data=filter_(d_month, paste0( "month==", i ) ), 
+#                          family=gaussian(link="log") )
+# }
+
+library(smwrBase)
+library(smwrStats)
+for ( i in 1:12 ) {
+     print(paste0("==================  ", i, "  =================="))
+     print( 
+          NSeff( Qobs=filter_(d_month, paste0( "month==", i))[,"flow_mean"], 
+            Qsim=model2[[i]]$fitted.values) )
+     print( press(model=model1[[i]]) )
+     print( press(model=model2[[i]]) )
+     print( press(model=model3[[i]]) )
+     # print(summary(model3[[i]]))
+}
+par(mfrow=c(2,3))
+i
+plot(model1[[i]], which=1:6)
+plot(model2[[i]], which=1:6)
+plot(model3[[i]], which=1:6)
+
+```
+
+
+```{r}
+# log.da_to_use.std	
+# precip.e.std	precip.e.lag1.std precip.e.lag2.std	
+# tmax.std	tmax.lag1.std	pet.std	pet.lag1.std	
+# CONUSWetland.std Forest.std	
+# BasinSlopePCNT.std	SurficialCoarseC.std	
+# log.da_to_use.std:SurficialCoarseC.std	CONUSOpenWater.std
+
+
+
+# > names(w_month)
+# [1] "month_date"            "n_days_weather"        "precip_e_total"       
+# [4] "precip_raw_total"      "pet_total"             "gdd_total"            
+# [7] "swe_day_total"         "frozen_day_total"      "tmax_mean"            
+# [10] "tmin_mean"             "precip_e_max"          "precip_raw_max"       
+# [13] "precip_sum_3_max"      "precip_sum_5_max"      "max_precip_e_date"    
+# [16] "max_precip_e_ties"     "max_precip_raw_date"   "max_precip_raw_ties"  
+# [19] "max_precip_3_date"     "max_precip_3_ties"     "precip_e_total_lag1"  
+# [22] "pet_total_lag1"        "gdd_total_lag1"        "swe_day_total_lag1"   
+# [25] "frozen_day_total_lag1" "tmax_mean_lag1"        "tmin_mean_lag1"       
+# [28] "precip_e_total_lag2"   "pet_total_lag2"        "swe_day_total_lag2"   
+# [31] "tmax_mean_lag2"        "tmin_mean_lag2"        "precip_e_ante_7"      
+# [34] "precip_e_ante_30"      "precip_e_ante_60"      "precip_e_ante_90"     
+# [37] "pet_ante_30"           "pet_ante_90"           "weather_set"          
+# [40] "weather_region"        "weather_filename"     
+
+
+
+# names(gages_no_barr@data %>% select( -contains("percentAreaWithData") ))
+# [1] "site_no"            "station_nm"         "dec_lat_va"        
+# [4] "dec_long_va"        "dec_coord_datum_cd" "huc_cd"            
+# [7] "da_nwis_sqmi"       "da_nwis_sqkm"       "DelinID"           
+# [10] "AreaSqKM"           "forest"             "agriculture"       
+# [13] "impervious"         "fwswetlands"        "fwsopenwater"      
+# [16] "slope_pcnt"         "elevation"          "surfcoarse"        
+# [19] "percent_sandy"      "drainageclass"      "hydrogroup_ab"     
+# [22] "deg_barr_1"         "deg_barr_2"         "deg_barr_3"        
+# [25] "deg_barr_4"         "deg_barr_6"         "deg_barr_7"        
+# [28] "deg_barr_all"       "weather_filename"   "weather_region"    
+# [31] "weather_set" 
+
+```
+
+
