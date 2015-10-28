@@ -100,6 +100,7 @@ plot(weather.grid.points,add=T, col="blue")
 
 ### Create template of dates
 ```{r}
+
 #these are hard-coded for now, but they should be read from a file within the livneh 1950-2013 set folder
 start_date <- "1950-01-01"
 end_date <- "2013-12-31"
@@ -116,16 +117,46 @@ example_file$date <- seq.Date( from=as.Date(start_date), to=as.Date(end_date), b
 example_file$month_date <- to_month_date( example_file$date )
 example_file$wateryear_date <- to_wateryear_date( example_file$date )
 
-head(example_file)
-tail(example_file)
-str(example_file)
+# head(example_file)
+# tail(example_file)
+# str(example_file)
 
 
-template_w_date <- example_file[,c("date","month_date","wateryear_date")]
-template_w_cols <- c("precip_mm", "tmax","tmin","wind")
-
-head(template_date)
+# template_w_date <- example_file[,c("date","month_date","wateryear_date")]
+# template_w_cols <- c("precip_mm", "tmax","tmin","wind")
+# 
+# head(template_date)
 
 ```
 
+```{r}
+
+weather_set_url <- "ftp://gdo-dcp.ucllnl.org/pub/dcp/archive/OBS/livneh2014.1_16deg/ascii/daily"
+weather_set_cols <- c("precip_mm", "tmax","tmin","wind")
+weather_set_dates <- example_file[,c("date","month_date","wateryear_date")]
+weather_set_table_params <- c(header=FALSE)
+
+save( weather_set_url, weather_set_cols, weather_set_dates, weather_set_table_params, compress="bzip2",
+      file="C:/ALR/Models/cache/data/weather/livneh_1950_2013/weather_set_info.bz2" )
+
+save( weather_grid_poly, compress="bzip2",
+      file="C:/ALR/Models/cache/data/weather/livneh_1950_2013/weather_grid_poly.bz2" )
+weather_grid_coords <- weather_grid_poly@data
+save( weather_grid_coords, compress="bzip2",
+      file="C:/ALR/Models/cache/data/weather/livneh_1950_2013/weather_grid_coords.bz2" )
+
+```
+
+```{r}
+# pointdelineationstats_4_3_2015.rdata
+# Loading objects:
+#   pointDelineationStats
+
+basin_char_DelinID <- pointDelineationStats
+attr( basin_char_DelinID, "meta" ) <- "Original file: pointdelineationstats_4_3_2015.rdata"
+save( basin_char_DelinID, compress="bzip2",
+      file="C:/ALR/Models/conteStreamflow_data/basin_char/basin_char_DelinID.bz2" )
+
+
+```
 
