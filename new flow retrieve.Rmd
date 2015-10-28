@@ -4,16 +4,22 @@
 #' @description import flow from nwis web service, and aggregate to various metrics and by various periods
 #' @export
 flow_retrieve<-function( gages, 
-                         periods=c("monthly","annual"),
+                         periods=c("month","wateryear"),
                          min_n = list( month=25, wateryear=345 ) ) {
      
      ### set up 
      ##
      #
+     require(plyr)
+     require(waterData)
+     require(zoo)
+     require(dplyr)
+     require(lubridate)
      
      #allow function to take sites argument as *either* data frame or spatial data frame
      if ( !is.null(attributes(class(gages))) && attributes(class(gages))$package == "sp" )
           gages <- gages@data
+     row.names(gages) <- NULL
 
      #create matrix for storing flow data
      flow_records <- list()
@@ -25,14 +31,16 @@ flow_retrieve<-function( gages,
      
      #create lists for storing meta data before it is assigned as attributes
      meta_download <- list()
-     meta_records <- list()
+     meta_records <- NULL
+     meta_error <- NULL  #save site_no id's of gages missing all data, 
+                         #or if unable to retrieve records
 
      
      ### Load data
      ##
      #
      cat("Begin loading and aggregating stream flow observations...\n")
-     missing<-c() #save site_no id's of gages missing all data, or if unable to retrieve records
+     # missing<-c() #save site_no id's of gages missing all data, or if unable to retrieve records
      
      #loop through sites
      for ( k in 1:length( gages$site_no ) )     {
@@ -46,17 +54,23 @@ flow_retrieve<-function( gages,
                                              #  daily mean, code 00003
                x_raw<-importDVs(gages$site_no[k], code = "00060", stat = "00003"),
                error = function(e) {
-                    missing<-c(missing,k)
-                    warning(paste("Gage",gages$site_no[k],"missing data", 
+                    meta_error <- c(meta_error,k)
+                    warning(paste("Error on gage",gages$site_no[k],": unable to download", 
                                   "\n",e))
-                    flag<-T
+                    flag <- T
                })
+          if ( nrow(x_raw) ==0 ){
+               meta_error <- c(meta_error,k)
+               warning(paste("Error on gage",gages$site_no[k],": missing all data", 
+                             "\n",e))
+               flag <- T
+          }
 #                error = function(e) {
 #                     print("error")
 #                     missing<-c(missing,k)
 #                     warning(paste("Gage",gages$site_no[k],"missing data", 
 #                                   "\n",e))
-#                     meta_download[[ gages$site_no[k] ]] <- c( "ERROR", "failed to download on", as.character(Sys.Date()) )
+#                     
 
           if (!flag) #check for errors
           {                    
@@ -66,9 +80,11 @@ flow_retrieve<-function( gages,
                          sdate = "1851-01-01",
                          edate = as.Date(Sys.Date(), format = "%Y-%m-%d")),
                     "&format=rdb")
-               meta <- readLines( con=url(meta_url), n=17 )
-               meta_download[[ gages$site_no[k] ]] <- meta[9:17]
-               close( url( meta.url) )
+               
+               meta_con <- url(meta_url)
+               meta_temp <- readLines( con=meta_con, n=17 )
+               meta_download[[ gages$site_no[k] ]] <- meta_temp[9:17]
+               close( meta_con )
                
                x_raw<-cleanUp(x_raw,task="fix",replace=0) #waterData function to fix common problems (sets ice to NAs, etc, I think)
                cat(paste0("        Gage ",gages$site_no[k],", loaded ",nrow(x_raw)," rows\n"))
@@ -103,10 +119,17 @@ flow_retrieve<-function( gages,
                #
                
                
-               meta_records[[ gages$site_no[k] ]] <- data.frame( 
-                  n_period_records=rep( NA, length(periods)),
-                  first_date=NA, last_date=NA )
-               row.names( meta_records[[ gages$site_no[k] ]] ) <- periods 
+               meta_records_temp <- data.frame( period=periods, site_no=gages$site_no[k],
+                  n_period_records=NA, first_date=NA, last_date=NA,
+                  stringsAsFactors=F )
+               if ( "da_nwis_sqkm" %in% names(gages) )
+                    meta_records_temp$da_nwis_sqkm <- gages$da_nwis_sqkm[k]
+               row.names(meta_records_temp) <- periods
+               # meta_records[[ gages$site_no[k] ]] <- data.frame( 
+#                   n_period_records=rep( NA, length(periods)),
+#                   first_date=NA, last_date=NA )
+               
+               # row.names( meta_records[[ gages$site_no[k] ]] ) <- periods 
 
                for (j in periods){     #loop through periods specified in function parameter
                     
@@ -114,46 +137,80 @@ flow_retrieve<-function( gages,
                     #summarize (for month and wateryear only, no summarization for daily)
                     #day
                     if ( j == "day" ) {
-                         x_period <- x_calc
+                         x_period <- x_calc 
                     }
                     #month or wateryear
                     else  {
+                         #summarize
                          x_period <- flow_summarize( x_calc, j )
+                         #remove NA values/rows
                          x_period <- x_period %>% 
                                         filter( n_days >= min_n[[j]] )
                     }
                     
-                    #save weather grid info for merging 
-                    if ( "weather_filename" %in% names( gages ) ) {
-                         x_period$weather_filename <- gages[k,"weather_filename"]
-                         x_period$weather_region <- gages[k,"weather_region"]
-                         x_period$weather_set <- gages[k,"weather_set"]
-                    }
-               
-                    #deal w/ this later
-                    meta_records[[ gages$site_no[k] ]][j,] <- c( nrow( x_period ),
-                         as.character( min( x_period[,paste0(j,"_date")] ) ),
-                         as.character( max( x_period[,paste0(j,"_date")] ) ) )
+                    #check that there are some complete records for this period
+                    #    (earlier, we checked that there were >0 rows of daily/raw records,
+                    #    but in some cases there are daily records but no complete 
+                    #    monthly or wateryear records)
+                    if ( nrow(x_period)>0 ) {
+                         #save weather grid info for merging 
+                         if ( "weather_filename" %in% names( gages ) ) {
+                              x_period$weather_filename <- gages[k,"weather_filename"]
+                              x_period$weather_region <- gages[k,"weather_region"]
+                              x_period$weather_set <- gages[k,"weather_set"]
+                         }
                     
-                                   ## save to master table, within list
-                    {
-                    if ( is.null(flow_records[[j]]) ) 
-                         flow_records[[j]] <- x_period
-                    else
-                         flow_records[[j]] <- rbind( flow_records[[j]], x_period )
+                         #save metadata on number of records
+                         #    temporarily saved to list, later added as attributes
+                         meta_records_temp[j,c("n_period_records","first_date","last_date")] <-
+                              c( nrow( x_period ),
+                                 as.character( min( x_period[,paste0(j,"_date")] ) ),
+                                 as.character( max( x_period[,paste0(j,"_date")] ) ) ) 
+#                          meta_records[[ gages$site_no[k] ]][j,] <- c( nrow( x_period ),
+#                               as.character( min( x_period[,paste0(j,"_date")] ) ),
+#                               as.character( max( x_period[,paste0(j,"_date")] ) ) )
+                    
+                         #clean up: remove extraneous date columns from daily records
+                         if ( j == "day" ) {
+                              x_period <- x_period %>% 
+                                   select( -day_date, -month_date, -wateryear_date ) 
+                         }
+                              
+                         
+                         ## save to master table, within list
+                         {
+                         if ( is.null(flow_records[[j]]) ) 
+                              flow_records[[j]] <- x_period
+                         else
+                              flow_records[[j]] <- rbind( flow_records[[j]], x_period )
+                         }
                     }
-          
+                    else {                         
+                         meta_records_temp[j,c("n_period_records","first_date","last_date")] <-
+                              c( 0, NA, NA )
+                    }
+                    
                } #end loop through periods
+     
+               row.names(meta_records_temp) <- NULL
+               #save n record info to master table
+               if ( is.null(meta_records) ) 
+                    meta_records <- meta_records_temp
+               else
+                    meta_records <- rbind( meta_records,meta_records_temp )
 
 
           }#end check flag
+
      }#end loop gages
 
-     
-     attributes((flow_records))
+
      attr( flow_records, "n_records" ) <- meta_records
      attr( flow_records, "download_info" ) <- meta_download
-
+     if (!is.null(meta_error))
+          attr( flow_records, "error_gages" ) <- meta_error
+     else
+          attr( flow_records, "error_gages" ) <- NA
      
      
      return( flow_records )
@@ -192,14 +249,7 @@ flow_raw_calc <- function( x ) {
                rename( seven_day=rolling7 ) %>% 
                rename( site_no=staid ) %>% 
                mutate( site_no=as.character(site_no)) 
-#      %>% 
-#                rename( site_no=staid )
-     # head(boo2)
-     # x_zoo<-as.data.frame(merge(x_zoo, rolling7))
-     # x_zoo<-(merge(x_zoo, rolling7))
-     # names(x_zoo)<-c("flow","seven_day")
-     # x_zoo$date<-as.Date(row.names(x_zoo))
-     
+
      row.names(x_calc) <- NULL
 
      return(x_calc)
@@ -210,43 +260,25 @@ flow_raw_calc <- function( x ) {
 
 ```{r}
 
-flow_summarize <- function( x_calc, j ) {
-#      template.period <- get( "template.period", envir=.GlobalEnv )
-#      j<-names(df)[1] #a way to determine the period, w/o requiring it to be 
-#                      #   passed as parameter, so only one paramter is needed
-#      cutoff <- template.period[j,"min.records"] #determine number of records  
-#                                                  #require to be considered "complete"
-#                                                  #for this period type     
-
-     
-     # these will soon be moved up as arguments, to this function and 
-     #         the weather_retrieve function that calls it
-     #         so the summary metrics can be customized by the user
-     
-     cols_mean <- c( "flow" )
-     cols_max <- c( "flow"  )
-     cols_min <- c( "flow","seven_day" )
-
+flow_summarize <- function( x_calc, j, 
+                            cols_mean = "flow",
+                            cols_max  = "flow",
+                            cols_min = c( "flow","seven_day" ) ) {
 
      #set up table   
      x_summary <- x_calc %>% 
                mutate( site_no=as.character(site_no) ) %>% 
-               group_by_( paste0(j,"_date") )  %>% #group by date representing the period, 
-                                                  # here and in code block below 
-               summarize( site_no=first(site_no), n_days = n()  ) #count the number of records in that period
+               group_by_( paste0(j,"_date") )  %>%     #group by date representing the period, 
+                                                       # here and in code blocks below 
+               summarize( site_no=first(site_no), n_days = n()  ) #count the number of 
+                                                                  #records in that period
 
-#      x_summary[,c("site_no","weather_filename","weather_region","weather_set")] <-
-#           x_calc[k,c("site_no","weather_filename","weather_region","weather_set")]
-     
+
      #add each summary metric
-
      if ( length(cols_mean) > 0 ) {
           x_mean <- x_calc %>% 
                group_by_( paste0(j,"_date") ) %>% 
                summarize_each_( "mean", cols_mean ) 
-               # summarize_each_( funs(mean(., na.rm = TRUE)), cols_mean ) 
-               # summarise_each(funs(mean(., na.rm = TRUE)))
-               # summarise_each_(iris, funs(max), names(iris)[-5])
           x_mean <- setNames( x_mean, c(  names(x_mean[,1]),  paste0(names(x_mean[,-1]), "_mean") ))
           x_summary <- merge( x_summary, x_mean, by=paste0(j,"_date") )
      }
@@ -265,6 +297,14 @@ flow_summarize <- function( x_calc, j ) {
           x_summary <- merge( x_summary, x_min, by=paste0(j,"_date") )
      }
      
+     #if flow_max is requested, also return the date of flow_max
+     if ( "flow" %in% cols_max ) {
+          x_max_date <- x_calc %>% 
+               group_by_( paste0(j,"_date") ) %>% 
+               summarize( flow_max_date= day_date[which.max(flow)] ) 
+          x_summary <- merge( x_summary, x_max_date, by=paste0(j,"_date") )
+     }
+     #(note: intentionally using merge rather than join to all fow SE)
      
      return(x_summary)
      
