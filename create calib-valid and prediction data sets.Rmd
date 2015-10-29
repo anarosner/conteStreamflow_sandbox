@@ -1,0 +1,80 @@
+```{r retrieving gages was done in a different document, maybe copy it here?}
+
+```
+
+
+```{r weather and flow calibration/validation sets}
+
+# weather set for calibration/validation (gages only)
+run_time1 <- Sys.time()
+weather_new_england <- weather_retrieve( gages_no_barr@data, periods=c("month","wateryear") )
+save( weather_new_england, file="weather_month_wyear_10_28.rdata" )
+run_time1 <- Sys.time() - run_time1
+print(run_time1)
+rm(weather_grid_coords)
+
+# flow set used for calibration/validation
+run_time2 <- Sys.time()
+flow_new_england <- flow_retrieve( gages_no_barr@data, periods=c("month","wateryear") )
+save( flow_new_england, file="flow_month_wyear_10_28.rdata" )
+run_time2 <- Sys.time() - run_time2 
+print(run_time2)
+
+
+```
+
+```{r define sites for prediction set}
+require(maptools)
+require(rgdal)
+
+
+#need to reproject to GCS
+sites <- readShapePoints( "C:/ALR/Projects/MassDOT/data/delin_data/delin_points_GCS_2_17_2015", 
+                          proj4string=CRS("+proj=longlat +ellps=GRS80 +datum=NAD83 +no_defs +towgs84=0,0,0"))
+culverts <- readShapePoints( "C:/ALR/Projects/MassDOT/data/culvert_data/culverts_flowacc_MA_DelinID_GCS", 
+                             proj4string=CRS("+proj=longlat +ellps=GRS80 +datum=NAD83 +no_defs +towgs84=0,0,0"))
+
+
+# the delin point shapfile includes both culverts and gages 
+#    of gages, some are used <100 sq km (used for clifs model), and some larger which might be used by other models
+#    of culverts, some are in MA and some VT (not used for MassDOT project)
+# the culvert point shapefile is only massachusetts culverts, and has flowacc sq km values
+sites <- merge( sites, culverts@data[,c("DelinID","flowacckm")], by="DelinID" )
+
+sites1 <- sites[(sites@data$DelinSet=="gages: all new england, <500 sq km"),]
+sites1 <- sites1[(sites1@data$d_nws_sqkm <= 100),]
+sites2 <- sites[(sites@data$DelinSet=="culverts: deerfield basin, MA and VT, 2-17-2015"),]
+sites2 <- sites2[!is.na(sites2@data$flowacckm),]
+sites2 <- sites2[(sites2@data$flowacckm <= 100),]
+prediction_sites <- rbind( sites1, sites2 )
+rm(sites1,sites2)
+```
+
+```{r}
+
+prediction_sites@data$weather_set <- "livneh_1950_2013"
+cache_read_rdata("weather_grid_poly.bz2",dir="weather/livneh_1950_2013")
+
+prediction_sites@data[ , c("weather_filename","weather_region") ] <- 
+     over( prediction_sites, weather_grid_poly )[ , c("weather_filename","weather_region") ]
+prediction_sites$weather_filename<-as.character(prediction_sites$weather_filename) 
+     
+sum(is.na(prediction_sites$weather_filename))
+sum(!is.na(prediction_sites$weather_filename))
+length(unique(prediction_sites$weather_filename))
+
+save( prediction_sites, file="C:/ALR/Models/conteStreamflow_sandbox/prediction_sites.rdata" )
+
+```
+
+
+```{r weather and altered weather for prediction set}
+# weather set used for predictions (gages and culverts, historic raw plus altered)
+run_time3 <- Sys.time()
+weather_new_england_alter <- weather_retrieve_alter( prediction_sites@data, periods=c("month","wateryear"), alter_temp=c(2,4,6), alter_precip=c(seq(from=0,to=20,by=2.5))  )
+save( weather_new_england_alter, file="weather_alter_month_wyear_10_28.rdata" )
+run_time3 <- Sys.time() - run_time3 
+print(run_time3)
+
+```
+
