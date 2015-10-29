@@ -6,15 +6,13 @@
 # #' @export
 weather_retrieve <- function( sites, 
                               periods=c("day","month","wateryear"),
-                              weather_set="livneh_1950_2013" ) {
+                              alter_temp=NULL, alter_precip=NULL ) {
                               #later, add arguments by which user can customize summarization and lag and antecedents
      
-     ### setup
-     ##
-     #
-     
+     # check cache
      cache_check()
      
+     # check packages
      require(plyr)
      require(lubridate)
      require(EcoHydRology)
@@ -22,6 +20,10 @@ weather_retrieve <- function( sites,
      require(zoo)
      require(dplyr)
      require(tidyr)
+     
+     ### customizable parameters... eventually
+     ##
+     #
      
      #a whole bunch of stuff to be added as parameters
      # will figure out how best to include them without creating something unreadable, and then add them in
@@ -56,6 +58,7 @@ weather_retrieve <- function( sites,
      #function parameters to add
      # require_lag1=TRUE, require_lag2=TRUE
      
+     
      ### setup and checks
      ##
      #
@@ -68,15 +71,23 @@ weather_retrieve <- function( sites,
      #allow function to take sites argument as *either* data frame or spatial data frame
      if ( !is.null(attributes(class(sites))) && attributes(class(sites))$package == "sp" )
           sites <- sites@data
+
+          # create master table
+     weather_records <- list()
+     for ( j in periods ) 
+          weather_records[[j]] <- NULL
+          #    wide by metric, 
+          #    long by site and date/time-step
+          #    stored in a list, one table for each period
+     
+     ### weather grid setup: determine grid cells needed, read weather set info&grid, download any files not in cache
+     ##
+     #
      
      #if all rows don't have the same weather set, throw an error
      if ( length( unique( sites$weather_set ) ) > 1 )
           stop( "you must use a single weather set")
      weather_set <- unique( sites$weather_set )
-     
-     ### determine grid cells needed, weather set, and info needed for weather set
-     ##
-     #
      
      # generate a data.frame of *unique* weather grids used by all sites
      select_weather_files<-sites[,c("weather_filename","weather_region" ,"weather_set")]
@@ -88,7 +99,7 @@ weather_retrieve <- function( sites,
      cache_setup_weather_set( weather_set=weather_set, weather_region=unique(select_weather_files$weather_region) )
      cache_read_rdata( file="weather_set_info.bz2", dir=paste0("weather/",weather_set) )
           # this will load the url, column names, and dates
-               # these unfortunately have to be hardcoded, with different values for each (of the three) data sets
+               # the column names unfortunately have to be hardcoded, with different values for each (of the three) data sets
                #    neither livneh or mauer data sets have column names
                #    livneh sets have no dates. mauer set has dates, but it's not in standard date format, 
                #         and it's easier to deal with it the same way as we deal w/ the other two sets
@@ -101,45 +112,28 @@ weather_retrieve <- function( sites,
      #    these lat values are used for snow melt and PET models
      cache_read_rdata( file="weather_grid_coords.bz2", dir=paste0("weather/",weather_set) )
 
-     ## check/download weather data files
-     # 
       
-     # weather_file_download( select_weather_files )
+     # check/download weather data files
      for (j in unique(select_weather_files$weather_region)) {
-
-          # dir_create_conditional( file.path(cache_dir_global,"data","weather",weather_set,j), quiet=F )
-          
           files <- select_weather_files[ select_weather_files$weather_region==j, "weather_filename"]
-
           for ( k in files ) {
                cache_download( k, dir=file.path("weather",weather_set,j), 
                                server_url=file.path(weather_set_url,j,fsep="/") )
           }
      }
-#                curl_download( url = paste0(weather_set_url,"/",j,"/",k),
-#                          destfile = file.path(cache_dir_global,"data","weather",weather_set,j,k) )
+
      
-     
-     ### load, process, and save weather data timeseries
+     ### read and process weather data timeseries
      ##
      #
      
-     # create master table
-     weather_records <- list()
-     for ( j in periods ) 
-          weather_records[[j]] <- NULL
-          #    wide by metric, 
-          #    long by site and date/time-step
-          #    stored in a list, one table for each period
      
-     
-     ## loop through weather gridcells/files
+     ## loop through weather gridcells/files (MAIN LOOP)
      #
      cat(paste( "Begin processing", nrow(select_weather_files), 
                 "unique weather files used for", nrow(sites),"sites","\n" ))
      
      for (i in 1:nrow(select_weather_files) ) {
-     # for (i in 1:10)  {
      
           cat( paste( "  --  Processing file", i, "of", nrow(select_weather_files), "  --  \n" ))
                     
@@ -148,32 +142,32 @@ weather_retrieve <- function( sites,
 
           ## load raw data file for grid cell
           #
-          x <- cache_read_table( file=select_weather_files$weather_filename[i], dir= 
-                              file.path("weather",weather_set,select_weather_files$weather_region[i]),
-                              weather_set_table_params )
-#                     x <- read.table( file.path("C:/ALR/Models/cache/data/weather_data", 
-#                               weather_set, 
-#                               select_weather_files$weather_region[i],
-#                               select_weather_files$weather_filename[i]), 
-                              # header=F) #mauer data set has headers, livneh doesn't...
+          x <- cache_read_table( file=select_weather_files$weather_filename[i], 
+                                 dir=file.path("weather",weather_set,select_weather_files$weather_region[i]),
+                                 weather_set_table_params )
           x <- setNames( x, weather_set_cols )
           x <- cbind( weather_set_dates, x )
           
                         
+          ## alter raw to generate shifted weather scenarios (daily timestep)
+          #
+          if ( !is.null(alter_temp) || !is.null(alter_precip) ) {
+                x <- weather_alter( x, alter_temp, alter_precip )
+          }
+          
           ## weather process calculations (daily timestep)
           #
-          
           x_calc <- weather_raw_calc( x, centroid )
           
           # calculate antecedent conditions 
           if ( !is.null(ante_days_precip_e) | !is.null(ante_days_pet) | !is.null(ante_days_gdd) )  {
                x_calc <- weather_antecedent( x_calc, ante_days_precip_e, ante_days_pet, ante_days_gdd )
-          }
+          } #this calculates antecedent conditions for each day.  later, will fetch those conditions for the specific days of interest, i.e. date of max precip
 
-          ## summarize and calulate lags for each period
+          
+          ## summarize and calulate lags for each period (LOOP THROUGH PERIODS within each file)
           #
           
-          #loop through periods
           for (j in periods ) { 
                
                ## summarize
@@ -262,6 +256,8 @@ weather_retrieve <- function( sites,
 }#end weather_retrieve function
      
 ```
+
+
 
 ```{r}
 
@@ -519,6 +515,99 @@ weather_fetch_ante <- function(  x_period, x_calc, j, date_col="max_precip_e_dat
      
 }
 ```
+
+
+```{r}
+# wrapper function which iterates through combinations of changes in temp and changes in precip
+# it would be more computationally efficient to embed loop within weather_retrieve funciton
+# but I want to minimize the amount of extra code added to weather_retrieve function 
+# for simplicity, especially as weather_retrieve will most frequently be used withouot any alterations
+
+weather_retrieve_alter <- function( sites, 
+                                    periods=c("day","month","wateryear"),
+                                    alter_temp_vector=NULL, alter_precip_vector=NULL,
+                                    save_dir=NULL ) {
+     
+     if ( is.null(save_dir) ) {
+          # calculate current/unchanged (which also sets up data structure)
+          weather_records <- weather_retrieve( sites=sites, periods=periods )
+          for( j in periods ) {
+               weather_records[[j]]$alter_temp <- 0
+               weather_records[[j]]$alter_precip <- 0
+               
+          }
+     }
+     
+     # if either is null, just set to zero change
+     if( is.null(alter_temp_vector) )
+          alter_temp_vector <- 0
+     if( is.null(alter_precip_vector) )
+          alter_precip_vector <- 0
+
+     for ( k in alter_temp_vector ) { #loop through temp changes
+          for ( l in alter_precip_vector ) { #loop through precip changes
+
+               # check that at least one of temp or precip has been altered (otherwise would duplicate current conditions)
+               if( !( k==0 && l==0 ) ) {
+                    
+                    print( paste0("altering raw observed weather: temperature ",k,"; precipitation ",l))
+
+                    # calculate altered weather
+                    weather_records_temp <- weather_retrieve( sites=sites, periods=periods,
+                                                              alter_temp=k, alter_precip=l )
+                    
+                    # save amount by which temp/precip were changed, and bind to main data structure
+                    for( j in periods ) {
+                         weather_records_temp[[j]]$alter_temp <- k
+                         weather_records_temp[[j]]$alter_precip <- l
+                    }
+
+                    if ( is.null(save_dir) ) {
+                         for( j in periods )
+                              weather_records[[j]] <- rbind( weather_records[[j]], weather_records_temp[[j]] )
+                    }
+                    else {
+                         save( weather_records_temp, file=paste0(save_dir,"/","weather_temp_",k,"precip_",l,".rdata") )
+                    }
+               }
+          }
+     }
+
+     if ( is.null(save_dir) )
+          return( weather_records )
+}
+
+#      alter_temp=NULL, alter_precip=NULL
+#      weather_new_england <- weather_retrieve( gages_no_barr[1:10,], periods=c("month","wateryear") )
+
+```
+
+
+```{r}
+# straightforward modificaiton of historic weather timeseries
+# this is pulled out into a separate function in order to minimize the amount of code in weather_retrieve function 
+#    that has to do with altering weather
+
+weather_alter <- function( x, alter_temp=NULL, alter_precip=NULL ) {
+     #created for weather sets with the following column names
+          # "precip_mm" "tmax"      "tmin"      "wind" 
+          # precip_mm is modified by the percent change specified in alter_precip
+          # both tmax and tmin are modified by absolute change in degreec C specified in alter_temp
+          # wind is not changed
+
+     if ( !is.null(alter_precip) )
+          x$precip_mm <- x$precip_mm*(1+alter_precip)
+     if ( !is.null(alter_temp) ) {
+          x$tmin <- x$tmin+alter_temp
+          x$tmax <- x$tmax+alter_temp
+     }
+     
+     return( x )
+}
+
+
+```
+
 
 
 ```{r}
