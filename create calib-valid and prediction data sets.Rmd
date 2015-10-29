@@ -64,17 +64,30 @@ sum(!is.na(prediction_sites$weather_filename))
 length(unique(prediction_sites$weather_filename))
 
 save( prediction_sites, file="C:/ALR/Models/conteStreamflow_sandbox/prediction_sites.rdata" )
-
+rm(weather_grid_poly)
 ```
 
 
 ```{r weather and altered weather for prediction set}
-# weather set used for predictions (gages and culverts, historic raw plus altered)
+
+# historic (unaltered) weather for entire prediction set
+# this will force download of all missing needed files
 run_time3 <- Sys.time()
-weather_new_england_alter <- weather_retrieve_alter( prediction_sites@data, periods=c("month","wateryear"), alter_temp=c(2,4,6), alter_precip=c(seq(from=0,to=20,by=2.5))  )
-save( weather_new_england_alter, file="weather_alter_month_wyear_10_28.rdata" )
-run_time3 <- Sys.time() - run_time3 
+weather_prediction <- weather_retrieve( prediction_sites@data, periods=c("month","wateryear") )
+save( weather_prediction, file="weather_pred_10_28.rdata" )
+run_time3 <- Sys.time() - run_time3
 print(run_time3)
+rm(weather_grid_coords)
+
+
+# weather set used for predictions (gages and culverts, historic raw plus altered)
+run_time4 <- Sys.time()
+weather_retrieve_alter( prediction_sites@data[1:2,],  
+                                      periods=c("month","wateryear"), 
+                                      save_dir="C:/ALR/Models/conteStreamflow_sandbox/altered_weather_10_28",  
+                                      alter_temp=c(2,4,6), alter_precip=c(seq(from=2,to=20,by=2))  )
+run_time4 <- Sys.time() - run_time4 
+print(run_time4)
 
 ```
 
